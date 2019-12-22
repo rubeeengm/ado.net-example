@@ -6,4 +6,8 @@
     <StartupObject>ConsoleClient.Program</StartupObject>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\services\Services\Services.csproj" />
+  </ItemGroup>
+
 </Project>
