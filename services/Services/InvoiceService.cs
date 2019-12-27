@@ -42,6 +42,35 @@ namespace Services {
 			return result;
 		}
 
+		public Invoice get(int id) {
+			var result = new Invoice();
+
+			using(var context = new SqlConnection(Parameters.connectionString)) {
+				context.Open();
+
+				var command = new SqlCommand("SELECT * FROM INVOICES WHERE ID = @ID", context);
+				command.Parameters.AddWithValue("@ID", id);
+
+				using (var reader = command.ExecuteReader()) {
+					reader.Read();
+
+					result.id = Convert.ToInt32(reader["ID"]);
+					result.iva = Convert.ToDecimal(reader["IVA"]);
+					result.subTotal = Convert.ToDecimal(reader["SUBTOTAL"]);
+					result.total = Convert.ToDecimal(reader["TOTAL"]);
+					result.clientId = Convert.ToInt32(reader["CLIENTID"]);
+				}
+
+				//Client
+				setClient(result, context);
+
+				//Detail
+				setDetail(result, context);
+			}
+
+			return result;
+		}
+
 		private void setClient(Invoice invoice, SqlConnection context) {
 			var command = new SqlCommand(
 				"SELECT * FROM CLIENTS WHERE ID = @CLIENTID", context
