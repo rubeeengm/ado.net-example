@@ -3,9 +3,99 @@ using Models;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Linq;
 
 namespace Services {
 	public class InvoiceService {
+
+		public void create(Invoice model) {
+			prepareOrder(model);
+
+			using (var context = new SqlConnection(Parameters.connectionString)) {
+				context.Open();
+
+				//header
+				addHeader(model, context);
+
+				//detail
+				addDetail(model, context);
+			}
+		}
+
+		private void addHeader(Invoice model, SqlConnection context) {
+			var query = "INSERT INTO INVOICES(CLIENTID, IVA, SUBTOTAL,TOTAL) OUTPUT INSERTED.ID " +
+						"VALUES(@CLIENTID, @IVA, @SUBTOTAL, @TOTAL)";
+			var command = new SqlCommand(query, context);
+
+			command.Parameters.AddWithValue("@CLIENTID", model.clientId);
+			command.Parameters.AddWithValue("@IVA", model.iva);
+			command.Parameters.AddWithValue("@SUBTOTAL", model.subTotal);
+			command.Parameters.AddWithValue("@TOTAL", model.total);
+
+			model.id = Convert.ToInt32(command.ExecuteScalar());
+		}
+
+		private void addDetail(Invoice model, SqlConnection context) {
+			foreach (var detail in model.detail) {
+				var query = "INSERT INTO INVOICEDETAIL(INVOICEID, PRODUCTID, QUANTITY, PRICE" +
+					", IVA, SUBTOTAL, TOTAL) VALUES(@INVOICEID, @PRODUCTID, @QUANTITY, @PRICE" +
+					", @IVA, @SUBTOTAL, @TOTAL)";
+
+				var command = new SqlCommand(query, context);
+
+				command.Parameters.AddWithValue("@INVOICEID", model.id);
+				command.Parameters.AddWithValue("@PRODUCTID", detail.productId);
+				command.Parameters.AddWithValue("@QUANTITY", detail.quantity);
+				command.Parameters.AddWithValue("@PRICE", detail.price);
+				command.Parameters.AddWithValue("@IVA", detail.iva);
+				command.Parameters.AddWithValue("@SUBTOTAL", detail.subTotal);
+				command.Parameters.AddWithValue("@TOTAL", detail.total);
+
+				command.ExecuteNonQuery();
+			}
+		}
+
+		private void prepareOrder(Invoice model) {
+			foreach (var detail in model.detail) {
+				detail.total = detail.quantity * detail.price;
+				detail.iva = detail.total * Parameters.ivaRate;
+				detail.subTotal = detail.total - detail.iva;
+			}
+
+			model.total = model.detail.Sum(x => x.total);
+			model.iva = model.detail.Sum(x => x.iva);
+			model.subTotal = model.detail.Sum(x => x.subTotal);
+		}
+
+		public Invoice get(int id) {
+			var result = new Invoice();
+
+			using (var context = new SqlConnection(Parameters.connectionString)) {
+				context.Open();
+
+				var command = new SqlCommand("SELECT * FROM INVOICES WHERE ID = @ID", context);
+				command.Parameters.AddWithValue("@ID", id);
+
+				using (var reader = command.ExecuteReader()) {
+					reader.Read();
+
+					result.id = Convert.ToInt32(reader["ID"]);
+					result.iva = Convert.ToDecimal(reader["IVA"]);
+					result.subTotal = Convert.ToDecimal(reader["SUBTOTAL"]);
+					result.total = Convert.ToDecimal(reader["TOTAL"]);
+					result.clientId = Convert.ToInt32(reader["CLIENTID"]);
+				}
+
+				//Client
+				setClient(result, context);
+
+				//Detail
+				setDetail(result, context);
+			}
+
+			return result;
+		}
+
 		public List<Invoice> getAll() {
 			var result = new List<Invoice>();
 
@@ -41,36 +131,7 @@ namespace Services {
 
 			return result;
 		}
-
-		public Invoice get(int id) {
-			var result = new Invoice();
-
-			using(var context = new SqlConnection(Parameters.connectionString)) {
-				context.Open();
-
-				var command = new SqlCommand("SELECT * FROM INVOICES WHERE ID = @ID", context);
-				command.Parameters.AddWithValue("@ID", id);
-
-				using (var reader = command.ExecuteReader()) {
-					reader.Read();
-
-					result.id = Convert.ToInt32(reader["ID"]);
-					result.iva = Convert.ToDecimal(reader["IVA"]);
-					result.subTotal = Convert.ToDecimal(reader["SUBTOTAL"]);
-					result.total = Convert.ToDecimal(reader["TOTAL"]);
-					result.clientId = Convert.ToInt32(reader["CLIENTID"]);
-				}
-
-				//Client
-				setClient(result, context);
-
-				//Detail
-				setDetail(result, context);
-			}
-
-			return result;
-		}
-
+	
 		private void setClient(Invoice invoice, SqlConnection context) {
 			var command = new SqlCommand(
 				"SELECT * FROM CLIENTS WHERE ID = @CLIENTID", context
