@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Linq;
+using System.Transactions;
 
 namespace Services {
 	public class InvoiceService {
@@ -11,60 +12,19 @@ namespace Services {
 		public void create(Invoice model) {
 			prepareOrder(model);
 
-			using (var context = new SqlConnection(Parameters.connectionString)) {
-				context.Open();
+			using (var transaction = new TransactionScope()) {
+				using (var context = new SqlConnection(Parameters.connectionString)) {
+					context.Open();
 
-				//header
-				addHeader(model, context);
+					//header
+					addHeader(model, context);
 
-				//detail
-				addDetail(model, context);
+					//detail
+					addDetail(model, context);
+				}
+
+				transaction.Complete();
 			}
-		}
-
-		private void addHeader(Invoice model, SqlConnection context) {
-			var query = "INSERT INTO INVOICES(CLIENTID, IVA, SUBTOTAL,TOTAL) OUTPUT INSERTED.ID " +
-						"VALUES(@CLIENTID, @IVA, @SUBTOTAL, @TOTAL)";
-			var command = new SqlCommand(query, context);
-
-			command.Parameters.AddWithValue("@CLIENTID", model.clientId);
-			command.Parameters.AddWithValue("@IVA", model.iva);
-			command.Parameters.AddWithValue("@SUBTOTAL", model.subTotal);
-			command.Parameters.AddWithValue("@TOTAL", model.total);
-
-			model.id = Convert.ToInt32(command.ExecuteScalar());
-		}
-
-		private void addDetail(Invoice model, SqlConnection context) {
-			foreach (var detail in model.detail) {
-				var query = "INSERT INTO INVOICEDETAIL(INVOICEID, PRODUCTID, QUANTITY, PRICE" +
-					", IVA, SUBTOTAL, TOTAL) VALUES(@INVOICEID, @PRODUCTID, @QUANTITY, @PRICE" +
-					", @IVA, @SUBTOTAL, @TOTAL)";
-
-				var command = new SqlCommand(query, context);
-
-				command.Parameters.AddWithValue("@INVOICEID", model.id);
-				command.Parameters.AddWithValue("@PRODUCTID", detail.productId);
-				command.Parameters.AddWithValue("@QUANTITY", detail.quantity);
-				command.Parameters.AddWithValue("@PRICE", detail.price);
-				command.Parameters.AddWithValue("@IVA", detail.iva);
-				command.Parameters.AddWithValue("@SUBTOTAL", detail.subTotal);
-				command.Parameters.AddWithValue("@TOTAL", detail.total);
-
-				command.ExecuteNonQuery();
-			}
-		}
-
-		private void prepareOrder(Invoice model) {
-			foreach (var detail in model.detail) {
-				detail.total = detail.quantity * detail.price;
-				detail.iva = detail.total * Parameters.ivaRate;
-				detail.subTotal = detail.total - detail.iva;
-			}
-
-			model.total = model.detail.Sum(x => x.total);
-			model.iva = model.detail.Sum(x => x.iva);
-			model.subTotal = model.detail.Sum(x => x.subTotal);
 		}
 
 		public Invoice get(int id) {
@@ -104,7 +64,7 @@ namespace Services {
 				context.Open();
 
 				var command = new SqlCommand("SELECT * FROM INVOICES", context);
-				
+
 				using (var reader = command.ExecuteReader()) {
 					while (reader.Read()) {
 						var invoice = new Invoice {
@@ -130,6 +90,107 @@ namespace Services {
 			}
 
 			return result;
+		}
+
+		public void update(Invoice model) {
+			prepareOrder(model);
+			
+			using (var transaction = new TransactionScope()) {
+				using (var context = new SqlConnection(Parameters.connectionString)) {
+					context.Open();
+
+					//header
+					updateHeader(model, context);
+
+					//remove detail
+					removeDetail(model.id, context);
+
+					addDetail(model, context);
+				}
+
+				transaction.Complete();
+			}
+		}
+
+		public void delete(int id) {
+			using (var context = new SqlConnection(Parameters.connectionString)) {
+				context.Open();
+
+				var command = new SqlCommand("DELETE FROM INVOICES WHERE ID = @ID", context);
+				
+				command.Parameters.AddWithValue("@ID", id);
+				command.ExecuteNonQuery();
+
+				//elimina el detalle
+				removeDetail(id, context);
+			}
+		}
+
+		private void addHeader(Invoice model, SqlConnection context) {
+			var query = "INSERT INTO INVOICES(CLIENTID, IVA, SUBTOTAL,TOTAL) OUTPUT INSERTED.ID " +
+						"VALUES(@CLIENTID, @IVA, @SUBTOTAL, @TOTAL)";
+			var command = new SqlCommand(query, context);
+
+			command.Parameters.AddWithValue("@CLIENTID", model.clientId);
+			command.Parameters.AddWithValue("@IVA", model.iva);
+			command.Parameters.AddWithValue("@SUBTOTAL", model.subTotal);
+			command.Parameters.AddWithValue("@TOTAL", model.total);
+
+			model.id = Convert.ToInt32(command.ExecuteScalar());
+		}
+
+		private void updateHeader(Invoice model, SqlConnection context) {
+			var query = "UPDATE INVOICES SET CLIENTID = @CLIENTID, IVA = @IVA, SUBTOTAL = @SUBTOTAL, TOTAL = @TOTAL " +
+				"WHERE ID = @ID";
+			var command = new SqlCommand(query, context);
+
+			command.Parameters.AddWithValue("@CLIENTID", model.clientId);
+			command.Parameters.AddWithValue("@IVA", model.iva);
+			command.Parameters.AddWithValue("@SUBTOTAL", model.subTotal);
+			command.Parameters.AddWithValue("@TOTAL", model.total);
+			command.Parameters.AddWithValue("@ID", model.id);
+
+			command.ExecuteNonQuery();
+		}
+
+		private void addDetail(Invoice model, SqlConnection context) {
+			foreach (var detail in model.detail) {
+				var query = "INSERT INTO INVOICEDETAIL(INVOICEID, PRODUCTID, QUANTITY, PRICE" +
+					", IVA, SUBTOTAL, TOTAL) VALUES(@INVOICEID, @PRODUCTID, @QUANTITY, @PRICE" +
+					", @IVA, @SUBTOTAL, @TOTAL)";
+
+				var command = new SqlCommand(query, context);
+
+				command.Parameters.AddWithValue("@INVOICEID", model.id);
+				command.Parameters.AddWithValue("@PRODUCTID", detail.productId);
+				command.Parameters.AddWithValue("@QUANTITY", detail.quantity);
+				command.Parameters.AddWithValue("@PRICE", detail.price);
+				command.Parameters.AddWithValue("@IVA", detail.iva);
+				command.Parameters.AddWithValue("@SUBTOTAL", detail.subTotal);
+				command.Parameters.AddWithValue("@TOTAL", detail.total);
+
+				command.ExecuteNonQuery();
+			}
+		}
+
+		private void removeDetail(int invoiceId, SqlConnection context) {
+			var query = "DELETE FROM INVOICEDETAIL WHERE INVOICEID = @INVOICEID";
+			var command = new SqlCommand(query, context);
+			
+			command.Parameters.AddWithValue("@INVOICEID", invoiceId);
+			command.ExecuteNonQuery();
+		}
+
+		private void prepareOrder(Invoice model) {
+			foreach (var detail in model.detail) {
+				detail.total = detail.quantity * detail.price;
+				detail.iva = detail.total * Parameters.ivaRate;
+				detail.subTotal = detail.total - detail.iva;
+			}
+
+			model.total = model.detail.Sum(x => x.total);
+			model.iva = model.detail.Sum(x => x.iva);
+			model.subTotal = model.detail.Sum(x => x.subTotal);
 		}
 	
 		private void setClient(Invoice invoice, SqlConnection context) {
