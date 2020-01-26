@@ -96,7 +96,9 @@ namespace Services {
 			prepareOrder(model);
 			
 			using (var transaction = new TransactionScope()) {
-				using (var context = new SqlConnection(Parameters.connectionString)) {
+				using (var context = new SqlConnection(
+					Parameters.connectionString)
+				) {
 					context.Open();
 
 					//header
@@ -116,7 +118,9 @@ namespace Services {
 			using (var context = new SqlConnection(Parameters.connectionString)) {
 				context.Open();
 
-				var command = new SqlCommand("DELETE FROM INVOICES WHERE ID = @ID", context);
+				var command = new SqlCommand(
+					"DELETE FROM INVOICES WHERE ID = @ID", context
+				);
 				
 				command.Parameters.AddWithValue("@ID", id);
 				command.ExecuteNonQuery();
